@@ -60,6 +60,15 @@ Por defecto `airstrikerc` mantiene un jugador humano y un rival IA. Cambiá
 `nr_players` a `0`, `1` o `2` para elegir IA contra IA, humano contra IA o dos
 humanos.
 
+## Mecánicas portadas
+
+- Los globos/bouncers se pinchan, se desinflan y sueltan pickups temporales.
+- La máquina de bonus genera nuevos globos periódicamente.
+- Los pickups pueden curar/reponer bombas, sumar score o activar molestias para
+  el rival como pájaros, globos, nubes, zepelín, cañón o misil.
+- Hay cañón con bolas de cañón, hangar dañable, pájaros, zepelín, globos y
+  nubes del juego original.
+
 ## Estructura del port
 
 - `airstrike_py/config.py`: lectura tolerante de `airstrikerc`.

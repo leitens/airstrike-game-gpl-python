@@ -13,8 +13,8 @@ from .config import PlaneTuning
 WORLD = pygame.Rect(0, 0, 800, 600)
 GROUND_Y = 536
 MAX_PLANE_SPEED = 260
-TURN_RATE_SCALE = 1650
-TURN_VELOCITY_BLEND = 1.35
+TURN_RATE_SCALE = 1850
+TURN_VELOCITY_BLEND = 1.5
 
 
 @dataclass
@@ -120,7 +120,7 @@ class Bomb(Entity):
     def __init__(self, owner: int, pos: pygame.Vector2, vel: pygame.Vector2, animation: Animation) -> None:
         super().__init__(pos, vel, animation)
         self.owner = owner
-        self.damage = 20
+        self.damage = 40
 
     def update(self, world: "GameWorld", dt: float) -> None:
         super().update(world, dt)
@@ -161,8 +161,8 @@ class Plane(Entity):
         self.tuning = tuning
         self.human = human
         self.heading = 180.0 if player_id == 0 else 0.0
-        self.health = tuning.hitpoints
-        self.max_health = tuning.hitpoints
+        self.health = tuning.hitpoints * 2
+        self.max_health = tuning.hitpoints * 2
         self.bombs = tuning.bombs
         self.fire_cooldown_ms = 0.0
         self.bomb_cooldown_ms = 0.0
@@ -360,12 +360,208 @@ class Balloon(Ambient):
 class Bouncer(Ambient):
     radius = 14
 
+    def __init__(self, pos: pygame.Vector2, vel: pygame.Vector2, animation: Animation, health: int = 6) -> None:
+        super().__init__(pos, vel, animation, health)
+        self.popping = False
+
     def update(self, world: "GameWorld", dt: float) -> None:
+        if self.popping:
+            Entity.update(self, world, dt)
+            if self.animation and self.animation.finished(self.age_ms):
+                world.spawn_bonus(self.pos)
+                self.alive = False
+            return
         super().update(world, dt)
         self.vel.y += world.gravity * 30 * dt
         if self.pos.y > 500:
             self.pos.y = 500
             self.vel.y = -abs(self.vel.y) * 0.95
+
+    def hit(self, damage: int, world: "GameWorld") -> None:
+        if self.popping:
+            return
+        self.health -= damage
+        if self.health <= 0:
+            self.popping = True
+            self.targetable = False
+            self.age_ms = 0
+            self.vel = pygame.Vector2(0, 18)
+            self.animation = world.assets.animation("balloon-deflate.png", 24, 32, 30, loop=False)
+            world.puff(self.pos)
+
+
+class BonusPickup(Entity):
+    radius = 15
+    solid = False
+    targetable = False
+
+    def __init__(self, pos: pygame.Vector2, vel: pygame.Vector2, animation: Animation, kind: int) -> None:
+        super().__init__(pos, vel, animation)
+        self.kind = kind
+
+    def update(self, world: "GameWorld", dt: float) -> None:
+        super().update(world, dt)
+        self.vel.y += world.gravity * 20 * dt
+        self.vel *= max(0.0, 1.0 - 0.25 * dt)
+        if self.age_ms > 7000:
+            self.alive = False
+        if self.pos.y > GROUND_Y - 16:
+            self.pos.y = GROUND_Y - 16
+            self.vel.y = -abs(self.vel.y) * 0.25
+
+    def image(self) -> pygame.Surface | None:
+        if self.animation is None:
+            return None
+        return self.animation.frames[self.kind % len(self.animation.frames)]
+
+
+class BonusMachine(Entity):
+    radius = 24
+    solid = False
+    targetable = True
+
+    def __init__(self, pos: pygame.Vector2, animation: Animation) -> None:
+        super().__init__(pos, pygame.Vector2(), animation)
+        self.spawn_timer_ms = 10_000
+        self.health = 60
+
+    def update(self, world: "GameWorld", dt: float) -> None:
+        self.age_ms += dt * 1000
+        self.spawn_timer_ms -= dt * 1000
+        if self.spawn_timer_ms <= 0:
+            self.spawn_timer_ms += 30_000
+            bouncer = Bouncer(
+                self.pos + pygame.Vector2(0, 36),
+                pygame.Vector2(random.choice([-25, 25]), 30),
+                world.assets.animation("balloon-float.png", 32, 1, 100),
+            )
+            world.add(bouncer)
+
+    def hit(self, damage: int, world: "GameWorld") -> None:
+        self.health -= damage
+        world.puff(self.pos)
+        if self.health <= 0:
+            self.alive = False
+            world.explosion(self.pos)
+
+
+class Hangar(Entity):
+    radius = 46
+    solid = False
+    targetable = True
+
+    def __init__(self, pos: pygame.Vector2, animation: Animation) -> None:
+        super().__init__(pos, pygame.Vector2(), animation)
+        self.health = 80
+        self.max_health = 80
+
+    def hit(self, damage: int, world: "GameWorld") -> None:
+        self.health -= damage
+        world.puff(self.pos + pygame.Vector2(random.randint(-35, 35), random.randint(-12, 12)))
+        if self.health <= 0:
+            self.alive = False
+            world.explosion(self.pos)
+
+    def image(self) -> pygame.Surface | None:
+        if self.animation is None:
+            return None
+        damage_ratio = 1.0 - max(0, self.health) / self.max_health
+        index = min(len(self.animation.frames) - 1, int(damage_ratio * len(self.animation.frames)))
+        return self.animation.frames[index]
+
+
+class Cannon(Entity):
+    radius = 28
+    solid = False
+    targetable = True
+
+    def __init__(self, pos: pygame.Vector2, assets: AssetStore) -> None:
+        self.assets = assets
+        super().__init__(pos, pygame.Vector2(), assets.animation("cannon-left.png", 64, 16, 30))
+        self.health = 35
+        self.cooldown_ms = 1800
+        self.facing = -1
+
+    def update(self, world: "GameWorld", dt: float) -> None:
+        self.age_ms += dt * 1000
+        self.cooldown_ms -= dt * 1000
+        if self.cooldown_ms > 0:
+            return
+        self.cooldown_ms = 2600
+        target = world.cannon_target()
+        if target is not None:
+            self.facing = -1 if target.pos.x < self.pos.x else 1
+        else:
+            self.facing *= -1
+        origin = self.pos + pygame.Vector2(30 * self.facing, -28)
+        if target is not None:
+            delta = target.pos - origin
+            if delta.length_squared() > 0:
+                velocity = delta.normalize() * 145
+                velocity.y -= 55
+            else:
+                velocity = pygame.Vector2(120 * self.facing, -120)
+        else:
+            velocity = pygame.Vector2(115 * self.facing, -120)
+        world.add(Cannonball(origin, velocity, world.assets.animation("cannonball.png", 8, 1, 90)))
+
+    def image(self) -> pygame.Surface | None:
+        name = "cannon-left.png" if self.facing < 0 else "cannon-right.png"
+        return self.assets.animation(name, 64, 16, 30).frame(self.age_ms)
+
+    def hit(self, damage: int, world: "GameWorld") -> None:
+        self.health -= damage
+        world.puff(self.pos)
+        if self.health <= 0:
+            self.alive = False
+            world.explosion(self.pos)
+
+
+class Cannonball(Entity):
+    radius = 6
+    solid = False
+    targetable = False
+
+    def __init__(self, pos: pygame.Vector2, vel: pygame.Vector2, animation: Animation) -> None:
+        super().__init__(pos, vel, animation)
+        self.damage = 5
+
+    def update(self, world: "GameWorld", dt: float) -> None:
+        super().update(world, dt)
+        self.vel.y += world.gravity * 35 * dt
+        if self.age_ms > 6000 or not world.bounds.inflate(120, 120).collidepoint(self.pos):
+            self.alive = False
+        if world.is_solid_at(self.pos):
+            self.alive = False
+            world.explosion(self.pos)
+
+
+class Bird(Ambient):
+    radius = 8
+
+    def __init__(self, pos: pygame.Vector2, vel: pygame.Vector2, animation: Animation) -> None:
+        super().__init__(pos, vel, animation, health=4)
+        self.hunt_player_id: int | None = None
+        self.hunt_ms = 0.0
+
+    def update(self, world: "GameWorld", dt: float) -> None:
+        if self.hunt_player_id is not None and self.hunt_ms > 0:
+            self.hunt_ms -= dt * 1000
+            target = world.planes[self.hunt_player_id]
+            desired = target.pos - self.pos
+            if desired.length_squared() > 0:
+                self.vel = self.vel.lerp(desired.normalize() * 80, min(1.0, 2.0 * dt))
+        super().update(world, dt)
+        if self.vel.length_squared() > 80 * 80:
+            self.vel.scale_to_length(80)
+
+    def hit(self, damage: int, world: "GameWorld") -> None:
+        self.health -= damage
+        if self.health <= 0:
+            self.pos = pygame.Vector2(random.randint(250, 550), random.randint(220, 380))
+            self.vel = pygame.Vector2(random.randint(-30, 30), random.randint(-25, 25))
+            self.health = 4
+            world.puff(self.pos)
 
 
 class GameWorldProtocol:

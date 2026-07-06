@@ -12,8 +12,14 @@ from .entities import (
     Ambient,
     Balloon,
     Bomb,
+    BonusMachine,
+    BonusPickup,
+    Bird,
+    Cannon,
+    Cannonball,
     Effect,
     Entity,
+    Hangar,
     InputState,
     Plane,
     Projectile,
@@ -40,6 +46,8 @@ class GameWorld:
         self.scores = [0, 0]
         self.round_message = ""
         self.round_message_ms = 0.0
+        self.cannon_focus_player: int | None = None
+        self.cannon_focus_ms = 0.0
         self._keys: pygame.key.ScancodeWrapper | None = None
         self.sound_enabled = sound_enabled
 
@@ -89,6 +97,18 @@ class GameWorld:
         )
         self.add(Balloon(pygame.Vector2(110, 160), pygame.Vector2(8, 5), self.assets.animation("airballoon.png", 64, 8, 140), 10))
         self.entities.extend(random_bouncers(self.assets, 5))
+        self.add(BonusMachine(pygame.Vector2(self.bounds.centerx, 16), self.assets.animation("bonus-machine.png", 48, 16, 60)))
+        self.add(Hangar(pygame.Vector2(400, 568), self.assets.animation("hangar.png", 100, 8, 1000)))
+        self.add(Cannon(pygame.Vector2(380, 518), self.assets))
+        bird_anim = self.assets.animation("bird.png", 12, 8, 40)
+        for _ in range(3):
+            self.add(
+                Bird(
+                    pygame.Vector2(random.randint(280, 520), random.randint(230, 390)),
+                    pygame.Vector2(random.randint(-25, 25), random.randint(-20, 20)),
+                    bird_anim,
+                )
+            )
 
     def spawn_planes(self) -> None:
         starts = [pygame.Vector2(700, 500), pygame.Vector2(40, 310)]
@@ -145,20 +165,26 @@ class GameWorld:
             entity.update(self, dt)
 
         self._collide_projectiles()
+        self._collect_pickups()
         self._collide_solids()
         self.entities = [entity for entity in self.entities if entity.alive]
+        if self.cannon_focus_ms > 0:
+            self.cannon_focus_ms = max(0, self.cannon_focus_ms - dt * 1000)
+            if self.cannon_focus_ms == 0:
+                self.cannon_focus_player = None
         self._scorekeeper()
         if self.round_message_ms > 0:
             self.round_message_ms = max(0, self.round_message_ms - dt * 1000)
 
     def _collide_projectiles(self) -> None:
-        projectiles = [e for e in self.entities if isinstance(e, (Projectile, Bomb)) and e.alive]
+        projectiles = [e for e in self.entities if isinstance(e, (Projectile, Bomb, Cannonball)) and e.alive]
         targets = [e for e in self.entities if e.targetable and e.alive]
         for projectile in projectiles:
             for target in targets:
                 if target is projectile:
                     continue
-                if isinstance(target, Plane) and target.player_id == projectile.owner:
+                owner = getattr(projectile, "owner", None)
+                if isinstance(target, Plane) and target.player_id == owner:
                     continue
                 if projectile.pos.distance_squared_to(target.pos) <= (projectile.radius + target.radius) ** 2:
                     target.hit(projectile.damage, self)
@@ -167,6 +193,17 @@ class GameWorld:
                         self.explosion(projectile.pos)
                     else:
                         self.puff(projectile.pos)
+                    break
+
+    def _collect_pickups(self) -> None:
+        pickups = [e for e in self.entities if isinstance(e, BonusPickup) and e.alive]
+        for pickup in pickups:
+            for plane in self.planes:
+                if not plane.alive:
+                    continue
+                if pickup.pos.distance_squared_to(plane.pos) <= (pickup.radius + plane.radius) ** 2:
+                    self.apply_bonus(pickup, plane)
+                    pickup.alive = False
                     break
 
     def _collide_solids(self) -> None:
@@ -229,6 +266,97 @@ class GameWorld:
     def enemy_of(self, plane: Plane) -> Plane | None:
         enemy = self.planes[1 - plane.player_id]
         return enemy if enemy.alive else None
+
+    def spawn_bonus(self, pos: pygame.Vector2) -> None:
+        kind = random.randrange(8)
+        self.add(
+            BonusPickup(
+                pos.copy(),
+                pygame.Vector2(random.uniform(-25, 25), -35),
+                self.assets.animation("bonus.png", 32, 8, 9999),
+                kind,
+            )
+        )
+
+    def apply_bonus(self, pickup: BonusPickup, plane: Plane) -> None:
+        opponent = self.enemy_of(plane)
+        kind = pickup.kind
+        if kind == 0 and opponent is not None:
+            self.add(
+                Balloon(
+                    opponent.pos + pygame.Vector2(-90, -80),
+                    pygame.Vector2(30, 20),
+                    self.assets.animation("airballoon.png", 64, 8, 140),
+                    10,
+                )
+            )
+            self.round_message = f"{plane.name}: airballoon"
+        elif kind == 1 and opponent is not None:
+            bird_anim = self.assets.animation("bird.png", 12, 8, 40)
+            for _ in range(2):
+                bird = Bird(
+                    plane.pos + pygame.Vector2(random.randint(-40, 40), random.randint(-80, -30)),
+                    pygame.Vector2(random.randint(-20, 20), random.randint(-20, 20)),
+                    bird_anim,
+                )
+                bird.hunt_player_id = opponent.player_id
+                bird.hunt_ms = 12_000
+                self.add(bird)
+            self.round_message = f"{plane.name}: birds"
+        elif kind == 2 and opponent is not None:
+            self.cannon_focus_player = opponent.player_id
+            self.cannon_focus_ms = 15_000
+            self.round_message = f"{plane.name}: cannon aim"
+        elif kind == 3 and opponent is not None:
+            self.add(
+                Ambient(
+                    opponent.pos + pygame.Vector2(-180, -100),
+                    pygame.Vector2(45, 0),
+                    self.assets.animation("cloud.png", 240, 1, 1000),
+                    999,
+                    targetable=False,
+                )
+            )
+            self.round_message = f"{plane.name}: cloud"
+        elif kind == 4 and opponent is not None:
+            self.add(
+                Projectile(
+                    plane.player_id,
+                    plane.pos.copy(),
+                    (opponent.pos - plane.pos).normalize() * 180 if opponent.pos != plane.pos else pygame.Vector2(180, 0),
+                    self.assets.animation("missile.png", 32, 16, 60),
+                    2200,
+                    4,
+                )
+            )
+            self.round_message = f"{plane.name}: missile"
+        elif kind == 5 and opponent is not None:
+            zeppelin = Ambient(
+                opponent.pos + pygame.Vector2(-220, -120),
+                pygame.Vector2(35, 0),
+                self.assets.animation("zeppelin-right.png", 96, 1, 1000),
+                55,
+            )
+            self.add(zeppelin)
+            self.round_message = f"{plane.name}: zeppelin"
+        elif kind == 6:
+            self.scores[plane.player_id] += 1
+            self.round_message = f"{plane.name}: score"
+        elif kind == 7:
+            plane.health = min(plane.max_health, plane.health + 10)
+            plane.bombs += 2
+            self.round_message = f"{plane.name}: repair"
+        self.round_message_ms = 1400
+
+    def cannon_target(self) -> Plane | None:
+        if self.cannon_focus_player is not None and self.cannon_focus_ms > 0:
+            target = self.planes[self.cannon_focus_player]
+            if target.alive:
+                return target
+        living = [plane for plane in self.planes if plane.alive]
+        if not living:
+            return None
+        return min(living, key=lambda plane: abs(plane.pos.x - 380))
 
     def smoke(self, pos: pygame.Vector2) -> None:
         if random.random() > 0.35:
@@ -431,9 +559,11 @@ class AirstrikeGame:
 
 
 def _draw_order(entity: Entity) -> int:
+    if isinstance(entity, Hangar):
+        return 0
     if isinstance(entity, Effect):
         return 2
-    if isinstance(entity, Projectile):
+    if isinstance(entity, (BonusPickup, Projectile, Cannonball)):
         return 3
     if isinstance(entity, Plane):
         return 4
