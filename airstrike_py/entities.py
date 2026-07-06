@@ -13,6 +13,8 @@ from .config import PlaneTuning
 WORLD = pygame.Rect(0, 0, 800, 600)
 GROUND_Y = 536
 MAX_PLANE_SPEED = 260
+TURN_RATE_SCALE = 1650
+TURN_VELOCITY_BLEND = 1.35
 
 
 @dataclass
@@ -194,9 +196,13 @@ class Plane(Entity):
         control = self.controls(world)
         if not self.crashing:
             if control.turn_left:
-                self.heading -= self.tuning.turn_amount * 1150 * dt
+                self.heading -= self.tuning.turn_amount * TURN_RATE_SCALE * dt
             if control.turn_right:
-                self.heading += self.tuning.turn_amount * 1150 * dt
+                self.heading += self.tuning.turn_amount * TURN_RATE_SCALE * dt
+            if (control.turn_left or control.turn_right) and self.vel.length_squared() > 900:
+                speed = self.vel.length()
+                desired_velocity = self.forward() * speed
+                self.vel = self.vel.lerp(desired_velocity, min(1.0, TURN_VELOCITY_BLEND * dt))
             if control.thrust:
                 self.vel += self.forward() * (self.tuning.engine_strength * 900 * dt)
                 world.smoke(self.pos - self.forward() * 20)
@@ -287,13 +293,13 @@ class Plane(Entity):
         if self.bomb_cooldown_ms > 0 or self.bombs <= 0:
             return
         self.bombs -= 1
-        direction = self.forward()
         offset = pygame.Vector2(0, 18)
-        inherited = pygame.Vector2(self.vel.x * 0.45, max(30, self.vel.y * 0.25))
+        inherited = pygame.Vector2(self.vel.x * 0.95, self.vel.y * 0.75)
+        inherited.y = max(inherited.y, -90)
         bomb = Bomb(
             owner=self.player_id,
             pos=self.pos + offset,
-            vel=inherited + pygame.Vector2(0, 95) + direction * 20,
+            vel=inherited + pygame.Vector2(0, 35),
             animation=self.assets.animation("bomb.png", 16, 64, 100),
         )
         world.add(bomb)
