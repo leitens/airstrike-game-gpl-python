@@ -78,7 +78,7 @@ class AssetStore:
             rect = pygame.Rect(index * frame_width, 0, frame_width, sheet.get_height())
             frame = pygame.Surface(rect.size, pygame.SRCALPHA)
             frame.blit(sheet, (0, 0), rect)
-            frame.set_colorkey(MAGENTA)
+            frame = _with_magenta_transparent(frame)
             frames.append(frame)
 
         animation = Animation(frames=frames, frame_ms=frame_ms, loop=loop)
@@ -98,3 +98,16 @@ class AssetStore:
             sound = None
         self._sounds[name] = sound
         return sound
+
+
+def _with_magenta_transparent(surface: pygame.Surface) -> pygame.Surface:
+    converted = surface.convert_alpha()
+    width, height = converted.get_size()
+    for y in range(height):
+        for x in range(width):
+            r, g, b, a = converted.get_at((x, y))
+            if (r, g, b) == MAGENTA:
+                converted.set_at((x, y), (r, g, b, 0))
+            else:
+                converted.set_at((x, y), (r, g, b, a))
+    return converted

@@ -52,7 +52,7 @@ sonido automáticamente y continúa en modo silencioso.
 - `F1`: mostrar u ocultar ayuda.
 - En pausa: `N` nueva partida, `Q` salir.
 - Blue Baron: flechas izquierda/derecha para girar, `Arriba` para acelerar,
-  `RCtrl` o `.` para disparar, `RShift` o `Espacio` para soltar bomba.
+  `Z` para disparar, `RShift` o `Espacio` para soltar bomba.
 - Red Baron: `A/D` para girar, `W` o `LCtrl` para acelerar, `LShift` para
   disparar, `Tab` para soltar bomba.
 

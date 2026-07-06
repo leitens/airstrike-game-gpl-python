@@ -133,7 +133,9 @@ class Bomb(Entity):
         image = super().image()
         if image is None:
             return None
-        return pygame.transform.rotate(image, self.angle)
+        rotated = pygame.transform.rotate(image, self.angle)
+        rotated.set_colorkey((255, 0, 255))
+        return rotated
 
 
 class Plane(Entity):
@@ -250,11 +252,16 @@ class Plane(Entity):
         )
 
     def _wrap_horizontal(self, world: "GameWorld") -> None:
-        if self.pos.x < world.bounds.left - 20:
-            self.pos.x = world.bounds.right + 20
-        elif self.pos.x > world.bounds.right + 20:
-            self.pos.x = world.bounds.left - 20
-        self.pos.y = max(-80, min(world.bounds.bottom + 80, self.pos.y))
+        if self.pos.x < world.bounds.left - self.radius:
+            self.pos.x = world.bounds.right + self.radius
+        elif self.pos.x > world.bounds.right + self.radius:
+            self.pos.x = world.bounds.left - self.radius
+
+        if self.pos.y < self.radius:
+            self.pos.y = self.radius
+            self.vel.y = max(0, self.vel.y)
+        elif self.pos.y > world.bounds.bottom + 80:
+            self.pos.y = world.bounds.bottom + 80
 
     def forward(self) -> pygame.Vector2:
         angle = radians(self.heading)
@@ -281,11 +288,12 @@ class Plane(Entity):
             return
         self.bombs -= 1
         direction = self.forward()
-        offset = direction.rotate(85) * 16
+        offset = pygame.Vector2(0, 18)
+        inherited = pygame.Vector2(self.vel.x * 0.45, max(30, self.vel.y * 0.25))
         bomb = Bomb(
             owner=self.player_id,
             pos=self.pos + offset,
-            vel=self.vel + offset * 1.8,
+            vel=inherited + pygame.Vector2(0, 95) + direction * 20,
             animation=self.assets.animation("bomb.png", 16, 64, 100),
         )
         world.add(bomb)

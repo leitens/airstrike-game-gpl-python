@@ -129,7 +129,7 @@ class GameWorld:
                 thrust=keys[pygame.K_UP] or keys[pygame.K_COMMA],
                 turn_left=keys[pygame.K_LEFT],
                 turn_right=keys[pygame.K_RIGHT],
-                fire=keys[pygame.K_RCTRL] or keys[pygame.K_PERIOD],
+                fire=keys[pygame.K_z],
                 bomb=keys[pygame.K_RSHIFT] or keys[pygame.K_SPACE],
             )
         return InputState(
@@ -402,7 +402,7 @@ class AirstrikeGame:
         assert self.font is not None
         lines = [
             "F1 help  F11 fullscreen  Esc pause",
-            "Blue: arrows/up thrust, RCtrl/period fire, RShift/space bomb",
+            "Blue: arrows/up thrust, Z fire, RShift/space bomb",
             "Red: A/D turn, W/LCtrl thrust, LShift fire, Tab bomb",
         ]
         y = 10
