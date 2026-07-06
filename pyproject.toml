@@ -1,0 +1,17 @@
+[project]
+name = "airstrike-python"
+version = "0.1.0"
+description = "Multiplatform Python/Pygame port of the Airstrike game sources."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "Pillow>=10",
+    "pygame>=2.6",
+]
+
+[project.scripts]
+airstrike-python = "airstrike_py.__main__:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
